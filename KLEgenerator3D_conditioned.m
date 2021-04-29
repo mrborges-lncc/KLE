@@ -1,34 +1,54 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                        RANDOM FIELDS GENERATOR
+%                    BASED ON KARHUNEN-LOEVE EXPANSION
+% CONDITIONING BASED ON OSSIANDER et al. (2014) - Conditional Stochastic 
+% Simulations of Flow and Transport with Karhunen-Loève Expansions, 
+% Stochastic Collocation, and Sequential Gaussian Simulation, Journal of 
+% Applied Mathematics Volume 2014, Article ID 652594, 21 pages
+% http://dx.doi.org/10.1155/2014/652594
+% AUTHOR: MARCIO RENTES BORGES
+% DATE: 29/04/2021
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 clear all
 close all
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%                    3D STOCHASTIC FIELDS GENERATOR       
-%                   BASED ON KARHUNEN-LOEVE EXPANSION
-% AUTHOR....: MARCIO RENTES BORGES
-% EMAIL.....: marcio.rentes.borges@gmail.com
-% DATE......: 11/11/2013
-% REVIEWED..: 06/10/2015
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 inputbox = 10; % if == 1 display a dialog box to input data
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% INPUT DATA %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 tStart = tic;
-home  = '~/MCMC_par/trunk/simuladorRigido/exp/fields/';
-homeT = '~/MCMC_par/trunk/gera_KL/MATLAB/';
-homep ='~/MCMC_par/trunk/simuladorRigido/exp/fields/'; % folder to save fields
-home_fig = '/home/mrborges/Dropbox/DeepLearning/Proj_simul/simuladorRigido/expUps_fine_scale/paraview/'
+home     = '~/MCMC_par/trunk/simuladorRigido/exp/fields/';
+homeT    = '~/MCMC_par/trunk/gera_KL/MATLAB/';
 home_fig = '~/MCMC_par/trunk/figuras/'
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-ntipo=3; 
-%% define the covariance function: if ntipo == 1 exponential;
-%%                                          == 2 fractal;
-%%                                          == 3 square exponential
-%%                                          == 4 Matern variogram
-nu = 0.5; % Matern
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-graf=1;  % if == 1 print the eigenvalues picture
-fig =1;  % if == 1 print 3D field (last one)
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+homep    = '~/MCMC_par/trunk/simuladorRigido/exp/fields/';
+%
+%** Determina o tipo de campo que sera gerado (ntipo==1 => exponencial)****
+%** (ntipo==2 => fractal) *************************************************
+%** (ntipo==3 => exponencial 2) *******************************************
+% ntipo = input('Digite 1 para campos exponenciais ou 2 para fractais :');
+graf=1;
+fig=1;
+%** Determina se a covariancia dos campos sera verificada (band_cov==1)****
+band_cov = 10;
+% *************************************************************************
+% %** ENTRADA DE DADOS ****************************************************
+% Lx = input('Entre com a dimensao fisica do Dominio (x): ');
+% Ly = input('Entre com a dimensao fisica do Dominio (y): ');
+% nx = input('Entre com o numero de elementos na direcao x: ');
+% ny = input('Entre com o numero de elementos na direcao y: ');
+% varY = input('Entre com a variancia dos campos: ');
+% M = input('Entre com a dimensao estocastica (M): ');
+% P = input('Entre com o grau do polinomio de colocacao (P): ');
+% if(ntipo==2)
+%     beta = input('Entre com o valor do coeficiente de Hurst: ');
+%     cutoff = input('Entre tamanho do cutoff: ');
+% end
+% if(ntipo==1)
+%     eta = input('Entre com o valor do comprimento de correlacao: ');
+% end
+%**************************************************************************
+%** ENTRADA DE DADOS ******************************************************
+ntipo=3; % 1 == exponential, 3 == square exponential %%%%%%%%%%%%%%%%%%%%%%
 %%%%% physical dimensions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 Lx  = 1.00;
 Ly  = 1.00;
@@ -53,6 +73,7 @@ M     = 0;  % number of terms used in the KL expansion. OBS: if == 0 it
 TIPOINPUT = 1; % if == 1 reads the conditioned points from the file
                 % indicated in "file_input_cond"
 file_input_cond = '~/MCMC_par/trunk/gera_KL/FORTRAN_RW/in/input_cond.dat';
+%file_input_cond = '~/Dropbox/ADWR/Estudos/input_cond.dat';
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 varY  = 1.0;           % field variance
 beta  = 0.5;           % if ntipo == 2 this is the Hurst coefficient
@@ -65,6 +86,7 @@ tipo_prt  = 1;         % if == 1 print the fields in the LNCC format,
 paraview_print = 1;    % if == 1 print paraview visualization
 printa         = 1;    % if == 1 save the T matrix = sqrt(lambda)*phi
 printabin      = 1;   % if == 1 save the T in a binary file
+printa_cond    = 10;   % if == 1 find the best conditioning (PLEASE DO NOT USE)
 estatistica    = 1;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 if(inputbox==1)
@@ -351,7 +373,7 @@ for i=1:M
 end
 T=phi(:,1:M)*diag(sqrt(lambda(1:M)));
 tEMatT=toc(tMatT);
-clear phi
+%clear phi
 disp(['Matrix T done: ' num2str(tEMatT) ' seg.']);
 disp('------------------------------');
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -623,48 +645,56 @@ if(TIPOINPUT == 1)
     end
 end
 %**************************************************************************
-%******** LOOP ************************************************************
+%******** LOOP sobre as realizacoes ***************************************
 mu=0.0;
 sig=1.0;
 Xi=zeros(num_elem,1);
 mY=zeros(num_elem,1);
 X = [];
-THETA = [];
+corretor = 0.0;
 %**************************************************************************
-%** PROCURAR O MELHOR CONDICIONAMENTO *************************************
+tCOND=0.0;
+%**************************************************************************
+%******** Matrizes para o novo condicionamento ****************************
+S=zeros(n_dados,n_dados);
+phicond=zeros(n_dados,M);
+for i=1:n_dados
+    for j=1:n_dados
+        for k=1:M
+            S(i,j) = S(i,j) + phi(pnode(i),k)*phi(pnode(j),k)*lambda(k)+corretor;
+            phicond(i,k) = phi(pnode(i),k)+corretor;
+        end
+    end
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+R=zeros(M,n_dados);
+for i=1:M
+    for k=1:n_dados
+        R(i,k)=phi(pnode(k),i)+corretor;
+    end
+end
 if(n_dados>0)
-    tCoMatrix=tic;
-    vect =[1:n_dados];
-    vect2=[1+n_dados:M];
-    tCOND=toc(tCoMatrix);
-else
-    tCOND=0.0;
+    LM=diag(lambda);
+    S=R'*LM*(R);
 end
 %**************************************************************************
-%**************************************************************************
+THETA=[];
+if(n_dados>0)
+    mutilde = ((LM).^(1/2))*R*inv(S)*dados;
+    MMat=eye(M,M)-((LM).^(1/2))*R*inv(S)*R'*((LM).^(1/2));
+end
+
+% theta=lhsnorm(mu,sig,M)
 for nr=1:Nrand
 %******** CONDICIONAMENTO DO CAMPO ****************************************
-        theta = lhsnorm(mu,sig,M);
         if(n_dados>0)
-            b=zeros(n_dados,1);
-            for i=1:n_dados
-                for j=1:M-NT
-                  b(i)= b(i)-T(pnode(i),vect2(j))*theta(vect2(j));
-               end
-               b(i)=b(i)+dados(i);
-               for j=1:NT
-                  A(i,j)=T(pnode(i),vect(j));
-               end
-            end
-            alpha=inv(A)*b;
-            for i=1:NT
-               theta(vect(i))=alpha(i);
-            end
+            theta=mutilde+MMat*lhsnorm(mu,sig,M);
+%             theta=mutilde+MMat*(sqrt(1-0.2^2)*theta+0.2*lhsnorm(mu,sig,M));
+        else
+            theta=lhsnorm(mu,sig,M);
         end
-%**************************************************************************
         for el=1:num_elem
-            Xi(el) = mY(el) + T(el,:)*theta;
-            %Xi(el) = mY(el) + T(el,:)*theta - auxY;
+            Xi(el) =  mY(el) + T(el,:)*theta + corretor;
         end
         if(estatistica==1)
             MEDIA = mean(Xi)
@@ -672,25 +702,17 @@ for nr=1:Nrand
             X = [X; Xi];
             THETA=[THETA; theta];
         end
-%******* PRINTING THE FIELDS **********************************************
+%******* impressao dos campos *********************************************
         if(nz==1)
             imprime(Lx,Ly,nx,ny,ntipo,beta,Xi,nr,home,name,tipo_prt);
         else
             imprime3D(Lx,Ly,Lz,nx,ny,nz,ntipo,beta,Xi,nr,home,name,tipo_prt);
         end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% PARAVIEW PRINTING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        if(paraview_print==1)
-            filename = [homep 'field_' name 'M' num2str(M,5)...
-                '-' num2str(nr-1,5)];
-            paraviewprinter(Lx,Ly,Lz,nx,ny,nz,Xi,filename)
-        end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 end
-clear T;
 tEgera=toc(tSgera);
 tElapsed=toc(tStart);
-disp(['End of fields generation: ' num2str(tEgera) ' seg.'])
+disp(['Tempo total gasto na geraccao dos campos: ' num2str(tEgera) ' seg.'])
 disp('------------------------------');
 
 if(estatistica==1)
@@ -701,75 +723,57 @@ if(estatistica==1)
 end
 
 if(fig==1&&nz~=1)
-    dx = Lx/double(NX);
-    dy = Ly/double(NY);
-    dz = Lz/double(NZ);
+    dx = Lx/(NX);
+    dy = Ly/(NY);
+    dz = Lz/(NZ);
     x1 = dx/2:dx:Lx;
     y1 = dy/2:dy:Ly;
     z1 = dz/2:dz:Lz;
     [X2,Y2,Z2] = meshgrid(x1,y1,z1);
-    X=X2*0;
-    k=0;
-    for l=1:NZ
-        for j = 1:NY
-            for i = 1:NX
-                k=k+1;
-                X(j,i,l)=Xi(k);
-            end
-        end
-    end
-    yslice = [Ly/2];
-    zslice = [Lz/2];
+    X=reshape(Xi,NY,NX,NZ);
     xslice = [dx, Lx/2, Lx-dx];
+    yslice = [dy];
+    zslice = [dz, Lz/2, Lz-dz];
+    xslice = [dx,Lx/2];
+    yslice = [Ly/2];
+    zslice = [dz Lz/4 Lz/2, 3*Lz/4, Lz-dz];
     figure(2)
     slice(X2,Y2,Z2,X,xslice,yslice,zslice), shading flat;
+%     slice(X2,Y2,Z2,X,[dx 1.75],2,[dz Lz-dz]), shading flat;
     daspect([ 1 1 1]);
     xlim([0 Lx]);
     ylim([0 Ly]);
     zlim([0 Lz]);
-    view(-35,20);
+    view(40,-40);
     name = [home_fig tipo '_field_' num2str(NX,5),...
         'x' num2str(NY,5) 'x' num2str(NZ,5) '_' num2str(M,5)];
     print('-depsc','-r300',name);
 end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-disp('############################################');
-%disp(['TEMPO TOTAL GASTO: ' num2str(tElapsed) ' seg.']);
-disp(['TOTAL TIME: ' num2str(tElapsed) ' seg.']);
-disp('############################################');
-%disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA CONSTRUIR A MATRIZ DE COVARIANCIA: '...
-%    num2str(100*tEMatrix/tElapsed) ' %']);
-disp(['PERCENTAGE OF TOTAL TIME SPENT TO CONSTRUCTION OF THE C MATRIX: '...
+disp('##############################');
+disp(['TEMPO TOTAL GASTO: ' num2str(tElapsed) ' seg.']);
+disp('##############################');
+disp('##############################');
+disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA CONSTRUIR A MATRIZ DE COVARIANCIA: '...
     num2str(100*tEMatrix/tElapsed) ' %']);
-disp('############################################');
-%disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA O CALCULO DOS AUTOPARES: '...
-%    num2str(100*tEauto/tElapsed) ' %']);
-disp(['PERCENTAGE OF TOTAL TIME SPENT TO COMPUTE THE EIGENPAIRS: '...
+disp('##############################');
+disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA O CALCULO DOS AUTOPARES: '...
     num2str(100*tEauto/tElapsed) ' %']);
-disp('############################################');
-%disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA CONSTRUIR A MATRIZ T (phi*sqrt(lambda)): '...
-%    num2str(100*tEMatT/tElapsed) ' %']);
-disp(['PERCENTAGE OF TOTAL TIME SPENT TO CONSTRUCTION OF THE T MATRIZ (phi*sqrt(lambda)): '...
+disp('##############################');
+disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA CONSTRUIR A MATRIZ T (phi*sqrt(lambda)): '...
     num2str(100*tEMatT/tElapsed) ' %']);
-disp('############################################');
-%disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA INTERPOLACAO DA MATRIZ T PARA MALHA FINA: '...
-%    num2str(100*tEINT/tElapsed) ' %']);
-disp(['PERCENTAGE OF TOTAL TIME SPENT TO INTERPOLATION: '...
+disp('##############################');
+disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA INTERPOLACAO DA MATRIZ T PARA MALHA FINA: '...
     num2str(100*tEINT/tElapsed) ' %']);
-disp('############################################');
-%disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA ESCOLHER O MELHOR CONDICIONAMENTO MATRIZ: '...
-%    num2str(100*tCOND/tElapsed) ' %']);
-%disp('############################################');
-%disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA SALVAR A MATRIZ T: '...
-%    num2str(100*tEsave/tElapsed) ' %']);
-disp(['PERCENTAGE OF TOTAL TIME SPENT TO SAVE THE T MATRIX: '...
+disp('##############################');
+disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA ESCOLHER O MELHOR CONDICIONAMENTO MATRIZ: '...
+    num2str(100*tCOND/tElapsed) ' %']);
+disp('##############################');
+disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA SALVAR A MATRIZ T: '...
     num2str(100*tEsave/tElapsed) ' %']);
-disp('############################################');
-%disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA GERAR OS CAMPOS: '...
-%    num2str(100*tEgera/tElapsed) ' %']);
-disp(['PERCENTAGE OF THE TOTAL TIME SPENT TO GENERATE THE FIELDS: '...
+disp('##############################');
+disp(['PORCENTAGEM DO TEMPO TOTAL GASTO PARA GERAR OS CAMPOS: '...
     num2str(100*tEgera/tElapsed) ' %']);
-disp('############################################');
+disp('##############################');
 %**************************************************************************
 if(estatistica==1)
     NORMAL(THETA,mean(THETA),sqrt(var(THETA)),'$\theta$');
