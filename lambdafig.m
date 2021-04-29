@@ -9,18 +9,18 @@ function lambdafig(X1, Y1, M)
 figure1 = figure();
 
 % Create axes
-axes1 = axes('Parent',figure1,'FontSize',20,'FontName','Times New Roman');
-%box(axes1,'on');
+axes1 = axes('Parent',figure1,'FontSize',22,'FontName','Times New Roman');
+box(axes1,'on');
 %hold(axes1,'all');
 
 % Create plot
 plot(X1(1:M),Y1(1:M),'MarkerFaceColor',[0 0 0],'Marker','o');
 
 % Create xlabel
-xlabel('$M$','Interpreter','latex','FontSize',24,...
+xlabel('$\mathsf{M}$','Interpreter','latex','FontSize',22,...
     'FontName','Times New Roman');
 
 % Create ylabel
-ylabel('$\lambda$','Interpreter','latex','FontSize',24,...
+ylabel('$\lambda$','Interpreter','latex','FontSize',22,...
     'FontName','Times New Roman');
 
