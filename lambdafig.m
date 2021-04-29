@@ -9,7 +9,8 @@ function lambdafig(X1, Y1, M)
 figure1 = figure();
 
 % Create axes
-axes1 = axes('Parent',figure1,'FontSize',22,'FontName','Times New Roman');
+axes1 = axes('Parent',figure1,'FontSize',22,...
+    'FontName','Times New Roman');
 box(axes1,'on');
 %hold(axes1,'all');
 
